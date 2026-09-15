@@ -153,10 +153,7 @@ public sealed class DesktopLayoutProfileStore
         DesktopLayoutProfile profile,
         CancellationToken cancellationToken)
     {
-        var temporaryPath = targetPath + ".tmp";
-        var json = JsonSerializer.Serialize(profile, JsonOptions);
-        await File.WriteAllTextAsync(temporaryPath, json, cancellationToken);
-        File.Move(temporaryPath, targetPath, overwrite: true);
+        await AtomicJsonFile.WriteAsync(targetPath, profile, JsonOptions, cancellationToken);
     }
 
     private static async Task<DesktopLayoutProfile?> TryReadAsync(

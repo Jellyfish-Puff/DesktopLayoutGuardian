@@ -7,6 +7,9 @@ namespace DesktopLayoutGuardian.Services;
 
 public sealed class DiagnosticLogService
 {
+    private const long MaxLogBytes = 2 * 1024 * 1024;
+    private readonly SemaphoreSlim _appendLock = new(1, 1);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = false
@@ -30,9 +33,30 @@ public sealed class DiagnosticLogService
 
     public async Task AppendAsync(DisplaySnapshot snapshot, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(LogDirectory);
-        var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-        await File.AppendAllTextAsync(LogFilePath, json + Environment.NewLine, Encoding.UTF8, cancellationToken);
+        await _appendLock.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(LogDirectory);
+            RotateIfNeeded();
+            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
+            await File.AppendAllTextAsync(LogFilePath, json + Environment.NewLine, Encoding.UTF8, cancellationToken);
+        }
+        finally
+        {
+            _appendLock.Release();
+        }
+    }
+
+    private void RotateIfNeeded()
+    {
+        var logFile = new FileInfo(LogFilePath);
+        if (!logFile.Exists || logFile.Length < MaxLogBytes)
+        {
+            return;
+        }
+
+        var previousPath = Path.Combine(LogDirectory, "display-events.previous.jsonl");
+        File.Move(LogFilePath, previousPath, overwrite: true);
     }
 
     public string BuildReport(DisplaySnapshot snapshot)

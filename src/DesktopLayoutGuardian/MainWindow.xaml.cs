@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopLayoutGuardian.Models;
 using DesktopLayoutGuardian.Services;
+using DesktopLayoutGuardian.ViewModels;
 
 namespace DesktopLayoutGuardian;
 
@@ -22,6 +23,7 @@ public partial class MainWindow : Window
     private readonly DesktopIconLayoutService _iconLayoutService = new();
     private readonly DesktopLayoutProfileStore _profileStore = new();
     private readonly DesktopLayoutRecoveryStore _recoveryStore = new();
+    private readonly DesktopLayoutPreviewService _previewService = new();
     private readonly ApplicationSettingsStore _settingsStore;
     private readonly StartupRegistrationService _startupService;
     private readonly DispatcherTimer _debounceTimer;
@@ -78,15 +80,15 @@ public partial class MainWindow : Window
 
     public Task SaveCurrentLayoutAsync() => SaveLayoutAsync();
 
-    public Task RestoreCurrentLayoutAsync()
+    public async Task RestoreCurrentLayoutAsync()
     {
         if (_currentProfileMatch is null)
         {
             SetStatus("当前显示环境还没有保存过布局。", "当前环境没有方案");
-            return Task.CompletedTask;
+            return;
         }
 
-        return RestoreProfileAsync(_currentProfileMatch.Profile, isAutomatic: false);
+        await RestoreProfileAsync(_currentProfileMatch.Profile, isAutomatic: false);
     }
 
     public async Task UndoLastRestoreAsync()
@@ -286,6 +288,14 @@ public partial class MainWindow : Window
         _currentProfileMatch = await _profileStore.FindMatchAsync(snapshot);
         _undoSnapshot = await _recoveryStore.LoadAsync();
         PublishCommandState();
+        if (ProfilesPanel.Visibility == Visibility.Visible)
+        {
+            await LoadProfilesAsync();
+        }
+        else if (HistoryPanel.Visibility == Visibility.Visible)
+        {
+            await LoadHistoryAsync();
+        }
 
         if (snapshot.Displays.Count != 1)
         {
@@ -371,11 +381,32 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var profile = await _profileStore.SaveAsync(_currentSnapshot, layout);
+            string? previewFileName = null;
+            string? previewWarning = null;
+            try
+            {
+                SetStatus("正在生成不包含其他窗口的桌面布局预览…", "正在生成布局预览");
+                previewFileName = await _previewService.CreateAsync(_currentSnapshot, layout);
+            }
+            catch (Exception exception) when (exception is ExternalException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                previewWarning = exception.Message;
+            }
+
+            var profile = await _profileStore.SaveAsync(_currentSnapshot, layout, previewFileName);
             _currentProfileMatch = new DesktopLayoutProfileMatch { Profile = profile, IsExactMatch = true };
             _lastRestoredConfigurationKey = _currentSnapshot.ConfigurationKey;
             LayoutStatusText.Text = $"已保存“{profile.Name}”布局，共 {layout.Icons.Count} 个图标。再次保存前会自动备份旧版本。";
-            SetStatus($"布局保存成功：{profile.Name}。切回该显示环境后将自动恢复。", $"{profile.Name} · 已保存");
+            SetStatus(
+                previewWarning is null
+                    ? $"布局和桌面预览保存成功：{profile.Name}。切回该显示环境后将自动恢复。"
+                    : $"布局保存成功，但预览生成失败：{previewWarning}",
+                $"{profile.Name} · 已保存");
+
+            if (ProfilesPanel.Visibility == Visibility.Visible)
+            {
+                await LoadProfilesAsync();
+            }
         }
         catch (Exception exception)
         {
@@ -404,17 +435,17 @@ public partial class MainWindow : Window
         await UndoLastRestoreAsync();
     }
 
-    private async Task RestoreProfileAsync(DesktopLayoutProfile profile, bool isAutomatic)
+    private async Task<bool> RestoreProfileAsync(DesktopLayoutProfile profile, bool isAutomatic)
     {
         if (_currentSnapshot is null || _currentSnapshot.Displays.Count != 1)
         {
             SetStatus("当前显示环境不允许恢复布局。", "当前环境不可恢复");
-            return;
+            return false;
         }
 
         if (!await _desktopOperationLock.WaitAsync(0))
         {
-            return;
+            return false;
         }
 
         _isDesktopOperationRunning = true;
@@ -425,7 +456,7 @@ public partial class MainWindow : Window
             if (!await IsDisplayConfigurationCurrentAsync(expectedConfigurationKey))
             {
                 ScheduleRefresh("恢复前确认：显示环境已变化");
-                return;
+                return false;
             }
 
             SetStatus("正在创建恢复前的安全快照…", "正在创建撤销快照");
@@ -441,7 +472,7 @@ public partial class MainWindow : Window
             if (!await IsDisplayConfigurationCurrentAsync(expectedConfigurationKey))
             {
                 ScheduleRefresh("写回前确认：显示环境已变化");
-                return;
+                return false;
             }
 
             SetStatus("正在恢复已保存的桌面布局…", "正在恢复布局");
@@ -460,6 +491,8 @@ public partial class MainWindow : Window
             {
                 RequestNotification("桌面布局已恢复", $"已应用“{profile.Name}”，定位 {result.RestoredCount} 个图标。", isError: false);
             }
+
+            return true;
         }
         catch (Exception exception)
         {
@@ -469,6 +502,8 @@ public partial class MainWindow : Window
             {
                 System.Windows.MessageBox.Show(this, exception.Message, "恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+
+            return false;
         }
         finally
         {
@@ -524,6 +559,243 @@ public partial class MainWindow : Window
                 confirmation.ConfigurationKey,
                 expectedConfigurationKey,
                 StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void NavigateCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPage(CurrentEnvironmentPanel, CurrentEnvironmentNavButton);
+    }
+
+    private async void NavigateProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPage(ProfilesPanel, ProfilesNavButton);
+        await LoadProfilesAsync();
+    }
+
+    private async void NavigateHistory_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPage(HistoryPanel, HistoryNavButton);
+        await LoadHistoryAsync();
+    }
+
+    private async void RefreshProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadProfilesAsync();
+    }
+
+    private async void RefreshHistory_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadHistoryAsync();
+    }
+
+    private void ShowPage(UIElement page, System.Windows.Controls.Button selectedButton)
+    {
+        CurrentEnvironmentPanel.Visibility = page == CurrentEnvironmentPanel ? Visibility.Visible : Visibility.Collapsed;
+        ProfilesPanel.Visibility = page == ProfilesPanel ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPanel.Visibility = page == HistoryPanel ? Visibility.Visible : Visibility.Collapsed;
+
+        foreach (var button in new[] { CurrentEnvironmentNavButton, ProfilesNavButton, HistoryNavButton })
+        {
+            button.Background = System.Windows.Media.Brushes.Transparent;
+            button.Foreground = (System.Windows.Media.Brush)FindResource("TextBrush");
+        }
+
+        selectedButton.Background = (System.Windows.Media.Brush)FindResource("PrimarySoftBrush");
+        selectedButton.Foreground = (System.Windows.Media.Brush)FindResource("PrimaryBrush");
+    }
+
+    private async Task LoadProfilesAsync()
+    {
+        try
+        {
+            var profiles = await _profileStore.GetAllAsync();
+            var cards = profiles
+                .Select(profile =>
+                {
+                    var canRestore = IsProfileCompatibleWithCurrentDisplay(profile);
+                    var isCurrent = _currentProfileMatch?.Profile.Id == profile.Id && canRestore;
+                    return new ProfileCardViewModel(
+                        profile,
+                        _profileStore.GetPreviewPath(profile),
+                        isCurrent,
+                        canRestore);
+                })
+                .ToArray();
+            ProfilesItemsControl.ItemsSource = cards;
+            ProfilesEmptyText.Visibility = cards.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (Exception exception)
+        {
+            ProfilesEmptyText.Text = $"读取显示方案失败：{exception.Message}";
+            ProfilesEmptyText.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        try
+        {
+            var history = await _profileStore.GetHistoryAsync();
+            var cards = history
+                .Select(profile => new HistoryCardViewModel(
+                    profile,
+                    _profileStore.GetPreviewPath(profile),
+                    IsProfileCompatibleWithCurrentDisplay(profile)))
+                .ToArray();
+            HistoryItemsControl.ItemsSource = cards;
+            HistoryEmptyText.Visibility = cards.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (Exception exception)
+        {
+            HistoryEmptyText.Text = $"读取恢复记录失败：{exception.Message}";
+            HistoryEmptyText.Visibility = Visibility.Visible;
+        }
+    }
+
+    private bool IsProfileCompatibleWithCurrentDisplay(DesktopLayoutProfile profile)
+    {
+        if (_currentSnapshot?.Displays.Count != 1 || profile.Display.Displays.Count != 1)
+        {
+            return false;
+        }
+
+        if (string.Equals(profile.Id, _currentSnapshot.ConfigurationKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var current = _currentSnapshot.Displays[0];
+        var saved = profile.Display.Displays[0];
+        return string.Equals(
+                current.CompatibilityIdentityKey,
+                saved.CompatibilityIdentityKey,
+                StringComparison.OrdinalIgnoreCase) &&
+            current.Width == saved.Width &&
+            current.Height == saved.Height &&
+            current.ScalePercent == saved.ScalePercent &&
+            string.Equals(current.Rotation, saved.Rotation, StringComparison.Ordinal);
+    }
+
+    private async void RestoreProfileCard_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ProfileCardViewModel card || !card.CanRestore)
+        {
+            return;
+        }
+
+        await RestoreProfileAsync(card.Profile, isAutomatic: false);
+        await LoadProfilesAsync();
+    }
+
+    private async void RestoreHistoryCard_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not HistoryCardViewModel card || !card.CanRestore)
+        {
+            return;
+        }
+
+        if (await RestoreProfileAsync(card.Profile, isAutomatic: false))
+        {
+            SetStatus(
+                $"已临时恢复 {card.SavedAt.Replace("保存于 ", string.Empty)} 的旧布局；确认无误后请在“当前环境”重新保存。",
+                $"{card.ProfileName} · 历史布局");
+        }
+    }
+
+    private async void RenameProfileCard_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ProfileCardViewModel card)
+        {
+            return;
+        }
+
+        if (!await _desktopOperationLock.WaitAsync(0))
+        {
+            SetStatus("另一个桌面操作正在执行，请稍后再修改方案。", "桌面操作进行中");
+            return;
+        }
+
+        _isDesktopOperationRunning = true;
+        PublishCommandState();
+        try
+        {
+            var renamed = await _profileStore.RenameAsync(card.Profile.Id, card.EditableName);
+            if (_currentProfileMatch?.Profile.Id == renamed.Id)
+            {
+                _currentProfileMatch = new DesktopLayoutProfileMatch
+                {
+                    Profile = renamed,
+                    IsExactMatch = _currentProfileMatch.IsExactMatch
+                };
+            }
+
+            SetStatus($"方案已重命名为“{renamed.Name}”。", $"{renamed.Name} · 保护中");
+            await LoadProfilesAsync();
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"重命名方案失败：{exception.Message}", "方案重命名失败");
+            System.Windows.MessageBox.Show(this, exception.Message, "重命名失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _isDesktopOperationRunning = false;
+            _desktopOperationLock.Release();
+            PublishCommandState();
+        }
+    }
+
+    private async void DeleteProfileCard_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ProfileCardViewModel card)
+        {
+            return;
+        }
+
+        var confirmation = System.Windows.MessageBox.Show(
+            this,
+            $"确定删除“{card.Profile.Name}”吗？\n\n方案会移动到本地 deleted 备份目录，不会立即永久删除。",
+            "删除显示方案",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (!await _desktopOperationLock.WaitAsync(0))
+        {
+            SetStatus("另一个桌面操作正在执行，请稍后再删除方案。", "桌面操作进行中");
+            return;
+        }
+
+        _isDesktopOperationRunning = true;
+        PublishCommandState();
+        try
+        {
+            await _profileStore.DeleteAsync(card.Profile.Id);
+            if (_currentProfileMatch?.Profile.Id == card.Profile.Id)
+            {
+                _currentProfileMatch = null;
+                _lastRestoredConfigurationKey = null;
+                LayoutStatusText.Text = "当前显示环境的方案已删除；桌面图标不会再自动恢复，直到重新保存。";
+            }
+
+            SetStatus($"已删除“{card.Profile.Name}”；原始记录已移入 deleted 备份目录。", "方案已安全删除");
+            await LoadProfilesAsync();
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"删除方案失败：{exception.Message}", "方案删除失败");
+            System.Windows.MessageBox.Show(this, exception.Message, "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            _isDesktopOperationRunning = false;
+            _desktopOperationLock.Release();
+            PublishCommandState();
+        }
     }
 
     private async Task LoadSettingsAsync()

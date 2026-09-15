@@ -1,6 +1,6 @@
 # DesktopLayoutGuardian（开发中）
 
-这是一个面向 Windows 11 单显示器切换场景的桌面图标布局管理器。目前版本为 0.3：日常后台驻留与稳定性预览。
+这是一个面向 Windows 11 单显示器切换场景的桌面图标布局管理器。目前版本为 0.4：可视化方案管理预览。
 
 ## 当前版本能做什么
 
@@ -15,7 +15,10 @@
 - 可选择登录 Windows 后静默启动；
 - 通过 Windows 官方 `IFolderView` Shell 接口读取桌面图标身份与坐标；
 - 为当前显示环境手动保存一份图标布局；
+- 保存布局时由当前壁纸、桌面图标及坐标生成纯桌面预览，不会截取已打开窗口；
+- 在“显示方案”页查看预览、重命名、恢复或安全删除方案；
 - 再次保存同一方案前自动备份旧版本；
+- 在“恢复记录”页查看并临时恢复覆盖保存前的旧布局；
 - 手动恢复已保存布局；
 - 切换到保存过的显示环境后自动恢复；
 - 未保存过的显示环境不会移动图标；
@@ -28,13 +31,15 @@
 
 当前版本只支持恰好一个活动显示器。刷新率不参与布局匹配；显示器身份、分辨率、缩放和方向参与匹配。
 
-0.3 版本完全兼容 0.2 版本已经保存的显示方案，无需重新整理桌面。
+0.4 版本完全兼容此前已经保存的显示方案，无需重新整理桌面；旧方案再次保存后会自动生成预览。
 
 ## 数据位置
 
 - 显示诊断日志：`%LOCALAPPDATA%\DesktopLayoutGuardian\diagnostics\display-events.jsonl`
 - 当前布局方案：`%LOCALAPPDATA%\DesktopLayoutGuardian\profiles`
 - 布局历史版本：`%LOCALAPPDATA%\DesktopLayoutGuardian\history`
+- 布局预览图片：`%LOCALAPPDATA%\DesktopLayoutGuardian\previews`
+- 安全删除的方案：`%LOCALAPPDATA%\DesktopLayoutGuardian\deleted`
 - 最近一次恢复前快照：`%LOCALAPPDATA%\DesktopLayoutGuardian\recovery\last-before-restore.json`
 - 应用设置：`%LOCALAPPDATA%\DesktopLayoutGuardian\settings.json`
 

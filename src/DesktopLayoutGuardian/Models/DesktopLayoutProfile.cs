@@ -10,6 +10,8 @@ public sealed class DesktopLayoutProfile
 
     public DateTimeOffset UpdatedAt { get; init; }
 
+    public string PreviewImageFileName { get; init; } = string.Empty;
+
     public DisplaySnapshot Display { get; init; } = new();
 
     public DesktopLayoutSnapshot Layout { get; init; } = new();

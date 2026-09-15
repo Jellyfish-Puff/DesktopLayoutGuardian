@@ -31,24 +31,24 @@
           </Border>
           <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
             <TextBlock Text="桌面布局" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-            <TextBlock Text="显示环境保护 · v0.3" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+            <TextBlock Text="显示环境保护 · v0.4" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
           </StackPanel>
         </StackPanel>
 
         <StackPanel Grid.Row="2">
-          <Button Style="{StaticResource NavButtonStyle}" Background="{StaticResource PrimarySoftBrush}" Foreground="{StaticResource PrimaryBrush}">
+          <Button x:Name="CurrentEnvironmentNavButton" Style="{StaticResource NavButtonStyle}" Background="{StaticResource PrimarySoftBrush}" Foreground="{StaticResource PrimaryBrush}" Click="NavigateCurrent_Click">
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="&#xE80F;" FontFamily="Segoe Fluent Icons" FontSize="17" Width="29" />
               <TextBlock Text="当前环境" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
-          <Button Style="{StaticResource NavButtonStyle}" IsEnabled="False" ToolTip="方案列表将在后续界面中开放">
+          <Button x:Name="ProfilesNavButton" Style="{StaticResource NavButtonStyle}" Click="NavigateProfiles_Click">
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="&#xE7F4;" FontFamily="Segoe Fluent Icons" FontSize="17" Width="29" />
               <TextBlock Text="显示方案" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
-          <Button Style="{StaticResource NavButtonStyle}" IsEnabled="False" ToolTip="历史版本将在后续界面中开放">
+          <Button x:Name="HistoryNavButton" Style="{StaticResource NavButtonStyle}" Click="NavigateHistory_Click">
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="&#xE81C;" FontFamily="Segoe Fluent Icons" FontSize="17" Width="29" />
               <TextBlock Text="恢复记录" VerticalAlignment="Center" />
@@ -68,7 +68,7 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Column="1" Margin="30,25,32,28">
+    <Grid x:Name="CurrentEnvironmentPanel" Grid.Column="1" Margin="30,25,32,28">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="18" />
@@ -217,6 +217,153 @@
           </ScrollViewer>
         </Grid>
       </Border>
+    </Grid>
+
+    <Grid x:Name="ProfilesPanel" Grid.Column="1" Margin="30,25,32,28" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel>
+          <TextBlock Text="显示方案" FontSize="27" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+          <TextBlock Text="用纯桌面预览快速辨认每套布局；旧方案重新保存后会自动生成预览" Margin="0,5,0,0" Foreground="{StaticResource SecondaryTextBrush}" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="刷新方案" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center" Click="RefreshProfiles_Click" />
+      </Grid>
+
+      <Grid Grid.Row="2">
+        <TextBlock x:Name="ProfilesEmptyText"
+                   Text="还没有保存过显示方案。"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   FontSize="15" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="ProfilesItemsControl">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <UniformGrid Columns="2" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Style="{StaticResource SectionCardStyle}" Margin="0,0,14,14" Padding="0" ClipToBounds="True">
+                  <Grid>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="188" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Background="#E8EDF6">
+                      <TextBlock Text="暂无预览&#x0a;重新保存此方案后自动生成"
+                                 TextAlignment="Center"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"
+                                 Foreground="{StaticResource SecondaryTextBrush}" />
+                      <Image Source="{Binding PreviewImage}" Stretch="UniformToFill" />
+                      <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12" Padding="9,5" CornerRadius="8" Background="#D9000000">
+                        <TextBlock Text="{Binding CurrentBadge}" Foreground="White" FontSize="11" FontWeight="SemiBold" />
+                      </Border>
+                    </Grid>
+
+                    <StackPanel Grid.Row="1" Margin="18,15,18,18">
+                      <TextBox Text="{Binding EditableName, UpdateSourceTrigger=PropertyChanged}"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"
+                               BorderBrush="{StaticResource BorderBrush}"
+                               Padding="8,6" />
+                      <TextBlock Text="{Binding DisplaySummary}" Margin="0,10,0,0" Foreground="{StaticResource SecondaryTextBrush}" />
+                      <TextBlock Text="{Binding LayoutSummary}" Margin="0,5,0,12" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                      <WrapPanel>
+                        <Button Content="恢复" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0" Tag="{Binding}" IsEnabled="{Binding CanRestore}" Click="RestoreProfileCard_Click" />
+                        <Button Content="保存名称" Margin="0,0,8,0" Tag="{Binding}" Click="RenameProfileCard_Click" />
+                        <Button Content="删除" Tag="{Binding}" Click="DeleteProfileCard_Click" />
+                      </WrapPanel>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </Grid>
+
+    <Grid x:Name="HistoryPanel" Grid.Column="1" Margin="30,25,32,28" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel>
+          <TextBlock Text="恢复记录" FontSize="27" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+          <TextBlock Text="每次覆盖保存前都会保留旧版本；恢复后确认无误，再保存为当前方案" Margin="0,5,0,0" Foreground="{StaticResource SecondaryTextBrush}" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="刷新记录" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center" Click="RefreshHistory_Click" />
+      </Grid>
+
+      <Grid Grid.Row="2">
+        <TextBlock x:Name="HistoryEmptyText"
+                   Text="暂无历史记录。第二次保存同一方案时会自动产生记录。"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   FontSize="15" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="HistoryItemsControl">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Style="{StaticResource SectionCardStyle}" Margin="0,0,0,12" Padding="14">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="210" />
+                      <ColumnDefinition Width="18" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Height="118" CornerRadius="9" Background="#E8EDF6" ClipToBounds="True">
+                      <Grid>
+                        <TextBlock Text="此旧版本没有预览"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource SecondaryTextBrush}" />
+                        <Image Source="{Binding PreviewImage}" Stretch="UniformToFill" />
+                      </Grid>
+                    </Border>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding ProfileName}" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                      <TextBlock Text="{Binding SavedAt}" Margin="0,7,0,0" Foreground="{StaticResource SecondaryTextBrush}" />
+                      <TextBlock Text="{Binding DisplaySummary}" Margin="0,5,0,0" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                      <TextBlock Text="{Binding LayoutSummary}" Margin="0,5,0,0" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                    </StackPanel>
+                    <Button Grid.Column="3"
+                            Content="临时恢复"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Tag="{Binding}"
+                            IsEnabled="{Binding CanRestore}"
+                            VerticalAlignment="Center"
+                            Click="RestoreHistoryCard_Click" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
     </Grid>
   </Grid>
 </Window>

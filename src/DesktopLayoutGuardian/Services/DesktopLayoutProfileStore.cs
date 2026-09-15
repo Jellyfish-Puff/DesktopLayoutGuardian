@@ -21,6 +21,8 @@ public sealed class DesktopLayoutProfileStore
             : Path.GetFullPath(dataRootOverride);
         ProfileDirectory = Path.Combine(DataRoot, "profiles");
         HistoryDirectory = Path.Combine(DataRoot, "history");
+        DeletedDirectory = Path.Combine(DataRoot, "deleted");
+        PreviewDirectory = Path.Combine(DataRoot, "previews");
     }
 
     public string DataRoot { get; }
@@ -29,9 +31,14 @@ public sealed class DesktopLayoutProfileStore
 
     public string HistoryDirectory { get; }
 
+    public string DeletedDirectory { get; }
+
+    public string PreviewDirectory { get; }
+
     public async Task<DesktopLayoutProfile> SaveAsync(
         DisplaySnapshot display,
         DesktopLayoutSnapshot layout,
+        string? previewImageFileName = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(display);
@@ -54,9 +61,12 @@ public sealed class DesktopLayoutProfileStore
         var profile = new DesktopLayoutProfile
         {
             Id = display.ConfigurationKey,
-            Name = CreateDefaultName(display.Displays[0]),
+            Name = existing?.Name ?? CreateDefaultName(display.Displays[0]),
             CreatedAt = existing?.CreatedAt ?? now,
             UpdatedAt = now,
+            PreviewImageFileName = string.IsNullOrWhiteSpace(previewImageFileName)
+                ? existing?.PreviewImageFileName ?? string.Empty
+                : Path.GetFileName(previewImageFileName),
             Display = display,
             Layout = layout
         };
@@ -87,6 +97,7 @@ public sealed class DesktopLayoutProfileStore
         }
 
         var currentMonitor = display.Displays[0];
+        var compatibleProfiles = new List<DesktopLayoutProfile>();
         foreach (var profilePath in Directory.EnumerateFiles(ProfileDirectory, "*.json", SearchOption.TopDirectoryOnly))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -106,11 +117,16 @@ public sealed class DesktopLayoutProfileStore
                 savedMonitor.ScalePercent == currentMonitor.ScalePercent &&
                 string.Equals(savedMonitor.Rotation, currentMonitor.Rotation, StringComparison.Ordinal))
             {
-                return new DesktopLayoutProfileMatch { Profile = candidate, IsExactMatch = false };
+                compatibleProfiles.Add(candidate);
             }
         }
 
-        return null;
+        var newestCompatibleProfile = compatibleProfiles
+            .OrderByDescending(profile => profile.UpdatedAt)
+            .FirstOrDefault();
+        return newestCompatibleProfile is null
+            ? null
+            : new DesktopLayoutProfileMatch { Profile = newestCompatibleProfile, IsExactMatch = false };
     }
 
     public async Task<IReadOnlyList<DesktopLayoutProfile>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -132,6 +148,82 @@ public sealed class DesktopLayoutProfileStore
         }
 
         return profiles.OrderByDescending(profile => profile.UpdatedAt).ToArray();
+    }
+
+    public async Task<IReadOnlyList<DesktopLayoutProfile>> GetHistoryAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(HistoryDirectory))
+        {
+            return [];
+        }
+
+        var profiles = new List<DesktopLayoutProfile>();
+        foreach (var profilePath in Directory.EnumerateFiles(HistoryDirectory, "*.json", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var profile = await TryReadAsync(profilePath, cancellationToken);
+            if (profile is not null)
+            {
+                profiles.Add(profile);
+            }
+        }
+
+        return profiles.OrderByDescending(profile => profile.UpdatedAt).ToArray();
+    }
+
+    public string? GetPreviewPath(DesktopLayoutProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.PreviewImageFileName))
+        {
+            return null;
+        }
+
+        var path = Path.Combine(PreviewDirectory, Path.GetFileName(profile.PreviewImageFileName));
+        return File.Exists(path) ? path : null;
+    }
+
+    public async Task<DesktopLayoutProfile> RenameAsync(
+        string profileId,
+        string newName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = newName.Trim();
+        if (normalizedName.Length is < 1 or > 50)
+        {
+            throw new ArgumentException("方案名称应为 1 到 50 个字符。", nameof(newName));
+        }
+
+        var targetPath = GetProfilePath(profileId);
+        var existing = await TryReadAsync(targetPath, cancellationToken)
+            ?? throw new FileNotFoundException("找不到要重命名的显示方案。", targetPath);
+
+        await BackupAsync(existing, targetPath, cancellationToken);
+        var renamed = new DesktopLayoutProfile
+        {
+            Id = existing.Id,
+            Name = normalizedName,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = DateTimeOffset.Now,
+            PreviewImageFileName = existing.PreviewImageFileName,
+            Display = existing.Display,
+            Layout = existing.Layout
+        };
+        await WriteAtomicallyAsync(targetPath, renamed, cancellationToken);
+        return renamed;
+    }
+
+    public async Task DeleteAsync(string profileId, CancellationToken cancellationToken = default)
+    {
+        var sourcePath = GetProfilePath(profileId);
+        var existing = await TryReadAsync(sourcePath, cancellationToken)
+            ?? throw new FileNotFoundException("找不到要删除的显示方案。", sourcePath);
+
+        Directory.CreateDirectory(DeletedDirectory);
+        var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff");
+        var destinationPath = Path.Combine(
+            DeletedDirectory,
+            $"{timestamp}-{SanitizeFileName(existing.Id)}.json");
+        File.Move(sourcePath, destinationPath, overwrite: false);
     }
 
     private async Task BackupAsync(

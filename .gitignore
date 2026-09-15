@@ -1,0 +1,8 @@
+.buildhome/
+.packages/
+.testrun/
+artifacts/
+**/bin/
+**/obj/
+*.user
+*.suo

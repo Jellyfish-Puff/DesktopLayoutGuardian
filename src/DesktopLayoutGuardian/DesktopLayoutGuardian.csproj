@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>DesktopLayoutGuardian</AssemblyName>
+    <RootNamespace>DesktopLayoutGuardian</RootNamespace>
+    <Product>桌面布局</Product>
+    <Description>Windows 11 桌面图标布局管理器</Description>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -69,6 +69,7 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= MainWindow_Loaded;
+        GreetingText.Text = CreateGreeting();
         await LoadSettingsAsync();
         _undoSnapshot = await _recoveryStore.LoadAsync();
         await RefreshAsync("程序启动");
@@ -261,6 +262,7 @@ public partial class MainWindow : Window
 
         if (snapshot.Displays.Count == 0)
         {
+            OverviewSubtitleText.Text = "暂未识别到活动显示器。";
             EnvironmentBadgeText.Text = "没有活动显示器";
             CurrentDisplayNameText.Text = "未检测到显示输出";
             ResolutionText.Text = "—";
@@ -272,6 +274,11 @@ public partial class MainWindow : Window
         }
 
         var display = snapshot.Displays.FirstOrDefault(item => item.IsPrimary) ?? snapshot.Displays[0];
+        OverviewSubtitleText.Text = snapshot.Displays.Count == 1
+            ? (_settings.AutoRestoreEnabled
+                ? "当前显示环境已经识别，桌面布局受到保护。"
+                : "当前显示环境已经识别，自动恢复目前已暂停。")
+            : "检测到多个活动显示器，当前处于只读模式。";
         EnvironmentBadgeText.Text = snapshot.Displays.Count == 1
             ? "单显示器环境 · 已稳定"
             : $"{snapshot.Displays.Count} 个活动显示器 · 只读模式";
@@ -289,11 +296,8 @@ public partial class MainWindow : Window
         _currentProfileMatch = await _profileStore.FindMatchAsync(snapshot);
         _undoSnapshot = await _recoveryStore.LoadAsync();
         PublishCommandState();
-        if (ProfilesPanel.Visibility == Visibility.Visible)
-        {
-            await LoadProfilesAsync();
-        }
-        else if (HistoryPanel.Visibility == Visibility.Visible)
+        await LoadProfilesAsync();
+        if (HistoryPanel.Visibility == Visibility.Visible)
         {
             await LoadHistoryAsync();
         }
@@ -307,11 +311,14 @@ public partial class MainWindow : Window
 
         if (_currentProfileMatch is null)
         {
+            EnvironmentBadgeText.Text = "新显示环境";
             LayoutStatusText.Text = "这是尚未保存的显示方案。整理好图标后，请点击“保存当前布局”。";
             SetStatus("显示环境已稳定；尚未保存对应布局。", $"{snapshot.Displays[0].FriendlyName} · 未保存方案");
             return;
         }
 
+        EnvironmentBadgeText.Text = "当前方案";
+        CurrentDisplayNameText.Text = _currentProfileMatch.Profile.Name;
         var matchText = _currentProfileMatch.IsExactMatch ? "精确匹配" : "兼容匹配";
         LayoutStatusText.Text = $"已找到“{_currentProfileMatch.Profile.Name}”布局（{matchText}，{_currentProfileMatch.Profile.Layout.Icons.Count} 个图标）。";
 
@@ -640,6 +647,8 @@ public partial class MainWindow : Window
                 .ToArray();
             ProfilesItemsControl.ItemsSource = cards;
             ProfilesEmptyText.Visibility = cards.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            OverviewProfilesItemsControl.ItemsSource = cards;
+            OverviewProfilesEmptyText.Visibility = cards.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception exception)
         {
@@ -1024,6 +1033,10 @@ public partial class MainWindow : Window
             ProtectionStatusIcon.Text = "\uE73E";
             ProtectionStatusTitle.Text = "后台保护已开启";
             ProtectionStatusSubtitle.Text = "仅恢复已保存的方案";
+            if (_currentSnapshot?.Displays.Count == 1)
+            {
+                OverviewSubtitleText.Text = "当前显示环境已经识别，桌面布局受到保护。";
+            }
         }
         else
         {
@@ -1035,6 +1048,10 @@ public partial class MainWindow : Window
             ProtectionStatusIcon.Text = "\uE769";
             ProtectionStatusTitle.Text = "自动恢复已暂停";
             ProtectionStatusSubtitle.Text = "手动操作仍然可用";
+            if (_currentSnapshot?.Displays.Count == 1)
+            {
+                OverviewSubtitleText.Text = "当前显示环境已经识别，自动恢复目前已暂停。";
+            }
         }
     }
 
@@ -1187,8 +1204,30 @@ public partial class MainWindow : Window
     private void SetStatus(string message, string summary)
     {
         StatusText.Text = message;
+        var isError = summary.Contains("失败", StringComparison.Ordinal) ||
+            summary.Contains("不可用", StringComparison.Ordinal) ||
+            summary.Contains("没有活动", StringComparison.Ordinal);
+        var statusBrush = isError
+            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(196, 60, 60))
+            : (System.Windows.Media.Brush)FindResource("SuccessBrush");
+        StatusText.Foreground = statusBrush;
+        OverviewStatusIcon.Foreground = statusBrush;
+        OverviewStatusIcon.Text = isError ? "\uEA39" : "\uE73E";
         _traySummary = summary;
         PublishCommandState();
+    }
+
+    private static string CreateGreeting()
+    {
+        var hour = DateTime.Now.Hour;
+        return hour switch
+        {
+            < 6 => "夜深了",
+            < 11 => "上午好",
+            < 14 => "中午好",
+            < 18 => "下午好",
+            _ => "晚上好"
+        };
     }
 
     private void PublishCommandState()

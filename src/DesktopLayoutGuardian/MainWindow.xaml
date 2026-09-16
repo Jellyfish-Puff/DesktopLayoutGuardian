@@ -35,7 +35,7 @@
           <Image Width="38" Height="38" Source="Assets/AppIcon.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
           <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
             <TextBlock Text="桌面布局" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-            <TextBlock Text="显示环境保护 · v0.6" FontSize="10.5" Foreground="{StaticResource SecondaryTextBrush}" />
+            <TextBlock Text="显示环境保护 · v1.0.0" FontSize="10.5" Foreground="{StaticResource SecondaryTextBrush}" />
           </StackPanel>
         </StackPanel>
 
@@ -495,7 +495,7 @@
                 <Button Content="清理旧日志" Margin="0,0,8,8" Click="ClearLogs_Click" />
               </WrapPanel>
               <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,12,0,14" />
-              <TextBlock Text="DesktopLayoutGuardian v0.6" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="DesktopLayoutGuardian v1.0.0" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
               <TextBlock Text="Windows 11 单显示器桌面布局保护工具" Margin="0,4,0,12" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
               <Button Content="打开 GitHub 项目" HorizontalAlignment="Left" Click="OpenProjectPage_Click" />
             </StackPanel>

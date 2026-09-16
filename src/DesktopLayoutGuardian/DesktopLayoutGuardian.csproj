@@ -13,7 +13,7 @@
     <RootNamespace>DesktopLayoutGuardian</RootNamespace>
     <Product>桌面布局</Product>
     <Description>Windows 11 桌面图标布局管理器</Description>
-    <Version>0.6.0</Version>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

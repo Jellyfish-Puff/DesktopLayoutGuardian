@@ -38,8 +38,9 @@ public sealed class ApplicationSettingsStore
         try
         {
             await using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return await JsonSerializer.DeserializeAsync<ApplicationSettings>(stream, JsonOptions, cancellationToken)
+            var settings = await JsonSerializer.DeserializeAsync<ApplicationSettings>(stream, JsonOptions, cancellationToken)
                 ?? new ApplicationSettings();
+            return Normalize(settings);
         }
         catch (JsonException)
         {
@@ -54,6 +55,7 @@ public sealed class ApplicationSettingsStore
     public async Task SaveAsync(ApplicationSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        settings = Normalize(settings);
         await _writeLock.WaitAsync(cancellationToken);
         try
         {
@@ -65,5 +67,32 @@ public sealed class ApplicationSettingsStore
             _writeLock.Release();
         }
     }
-}
 
+    private static ApplicationSettings Normalize(ApplicationSettings settings)
+    {
+        var strategy = settings.DetectionStrategy switch
+        {
+            "Fast" => "Fast",
+            "Stable" => "Stable",
+            _ => "Standard"
+        };
+        var (displayDelay, stabilityDelay) = strategy switch
+        {
+            "Fast" => (1600, 450),
+            "Stable" => (5000, 1400),
+            _ => (3000, 800)
+        };
+
+        return new ApplicationSettings
+        {
+            SchemaVersion = 2,
+            StartWithWindows = settings.StartWithWindows,
+            ShowRestoreNotifications = settings.ShowRestoreNotifications,
+            AutoRestoreEnabled = settings.AutoRestoreEnabled,
+            DetectionStrategy = strategy,
+            HistoryRetentionPerProfile = Math.Clamp(settings.HistoryRetentionPerProfile, 1, 100),
+            DisplayChangeDelayMilliseconds = displayDelay,
+            StabilityProbeDelayMilliseconds = stabilityDelay
+        };
+    }
+}

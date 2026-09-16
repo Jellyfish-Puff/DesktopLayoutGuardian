@@ -45,13 +45,18 @@ var expectedSettings = new ApplicationSettings
 {
     StartWithWindows = false,
     ShowRestoreNotifications = true,
-    DisplayChangeDelayMilliseconds = 3200,
-    StabilityProbeDelayMilliseconds = 900
+    AutoRestoreEnabled = false,
+    DetectionStrategy = "Stable",
+    HistoryRetentionPerProfile = 20
 };
 await settingsStore.SaveAsync(expectedSettings);
 var loadedSettings = await settingsStore.LoadAsync();
 Assert(loadedSettings.ShowRestoreNotifications, "通知设置未能持久化");
-Assert(loadedSettings.DisplayChangeDelayMilliseconds == 3200, "防抖设置未能持久化");
+Assert(!loadedSettings.AutoRestoreEnabled, "自动恢复开关未能持久化");
+Assert(loadedSettings.DetectionStrategy == "Stable", "检测策略未能持久化");
+Assert(loadedSettings.DisplayChangeDelayMilliseconds == 5000, "稳健检测策略没有应用正确的防抖时间");
+Assert(loadedSettings.StabilityProbeDelayMilliseconds == 1400, "稳健检测策略没有应用正确的确认时间");
+Assert(loadedSettings.HistoryRetentionPerProfile == 20, "历史保留数量未能持久化");
 
 var profileStore = new DesktopLayoutProfileStore();
 var previewService = new DesktopLayoutPreviewService();
@@ -73,6 +78,11 @@ Assert(renamedProfile.Name == "核心测试方案", "方案重命名失败");
 Assert((await profileStore.FindMatchAsync(display))?.Profile.Name == "核心测试方案", "重命名没有写入当前方案");
 var savedAfterRename = await profileStore.SaveAsync(display, layout, previewFileName);
 Assert(savedAfterRename.Name == "核心测试方案", "再次保存布局时不应覆盖自定义名称");
+var orphanPreviewPath = Path.Combine(profileStore.PreviewDirectory, "orphan-preview.jpg");
+await File.WriteAllTextAsync(orphanPreviewPath, "orphan");
+var cleanupResult = await profileStore.CleanupAsync(2);
+Assert((await profileStore.GetHistoryAsync()).Count(profile => profile.Id == display.ConfigurationKey) <= 2, "历史保留数量没有生效");
+Assert(cleanupResult.DeletedPreviewCount >= 1 && !File.Exists(orphanPreviewPath), "无引用预览没有被清理");
 
 var deletableDisplay = new DisplaySnapshot
 {
@@ -100,6 +110,16 @@ await profileStore.DeleteAsync(deletableDisplay.ConfigurationKey);
 Assert(await profileStore.FindMatchAsync(deletableDisplay) is null, "删除后的方案仍然可以匹配");
 Assert(Directory.EnumerateFiles(profileStore.DeletedDirectory, "*.json").Any(), "删除的方案没有移入备份目录");
 
+var deleteAllRoot = Path.Combine(testRoot, $"delete-all-case-{Guid.NewGuid():N}");
+Environment.SetEnvironmentVariable("DLG_DATA_ROOT", deleteAllRoot);
+var deleteAllStore = new DesktopLayoutProfileStore();
+await deleteAllStore.SaveAsync(display, layout);
+await deleteAllStore.SaveAsync(deletableDisplay, layout);
+Assert(deleteAllStore.DeleteAll() == 2, "安全清空没有移动全部当前方案");
+Assert((await deleteAllStore.GetAllAsync()).Count == 0, "安全清空后仍存在当前方案");
+Assert(Directory.EnumerateFiles(deleteAllStore.DeletedDirectory, "*.json").Count() == 2, "安全清空的方案没有进入 deleted 目录");
+Environment.SetEnvironmentVariable("DLG_DATA_ROOT", testRoot);
+
 var recoveryStore = new DesktopLayoutRecoveryStore();
 await recoveryStore.SaveAsync(display, layout, "测试方案");
 var recovery = await recoveryStore.LoadAsync();
@@ -116,9 +136,11 @@ var staleTemporaryFiles = Directory.EnumerateFiles(testRoot, "*.tmp", SearchOpti
 Assert(staleTemporaryFiles.Length == 0, "原子写入遗留了临时文件");
 
 Console.WriteLine("PASS: settings atomic write");
+Console.WriteLine("PASS: auto-restore, detection strategy, and history settings");
 Console.WriteLine("PASS: profile compatibility and history backup");
 Console.WriteLine("PASS: privacy-safe desktop layout preview");
 Console.WriteLine("PASS: profile history, rename, and recoverable delete");
+Console.WriteLine("PASS: history cleanup and recoverable reset");
 Console.WriteLine("PASS: recovery snapshot save/load/clear");
 Console.WriteLine("PASS: diagnostic log append");
 

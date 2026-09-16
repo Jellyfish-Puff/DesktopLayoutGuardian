@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -39,7 +40,7 @@ public partial class MainWindow : Window
     private string? _lastRestoredConfigurationKey;
     private int _displayChangeRevision;
     private bool _isDesktopOperationRunning;
-    private bool _isLoadingSettings;
+    private bool _isLoadingSettings = true;
 
     public MainWindow(ApplicationSettingsStore settingsStore, StartupRegistrationService startupService)
     {
@@ -314,6 +315,12 @@ public partial class MainWindow : Window
         var matchText = _currentProfileMatch.IsExactMatch ? "精确匹配" : "兼容匹配";
         LayoutStatusText.Text = $"已找到“{_currentProfileMatch.Profile.Name}”布局（{matchText}，{_currentProfileMatch.Profile.Layout.Icons.Count} 个图标）。";
 
+        if (!_settings.AutoRestoreEnabled)
+        {
+            SetStatus("自动恢复已暂停；仍可在当前环境或显示方案页面手动恢复。", $"{_currentProfileMatch.Profile.Name} · 自动恢复已暂停");
+            return;
+        }
+
         if (!string.Equals(_lastRestoredConfigurationKey, snapshot.ConfigurationKey, StringComparison.OrdinalIgnoreCase))
         {
             await RestoreProfileAsync(_currentProfileMatch.Profile, isAutomatic: true);
@@ -393,7 +400,11 @@ public partial class MainWindow : Window
                 previewWarning = exception.Message;
             }
 
-            var profile = await _profileStore.SaveAsync(_currentSnapshot, layout, previewFileName);
+            var profile = await _profileStore.SaveAsync(
+                _currentSnapshot,
+                layout,
+                previewFileName,
+                _settings.HistoryRetentionPerProfile);
             _currentProfileMatch = new DesktopLayoutProfileMatch { Profile = profile, IsExactMatch = true };
             _lastRestoredConfigurationKey = _currentSnapshot.ConfigurationKey;
             LayoutStatusText.Text = $"已保存“{profile.Name}”布局，共 {layout.Icons.Count} 个图标。再次保存前会自动备份旧版本。";
@@ -578,6 +589,11 @@ public partial class MainWindow : Window
         await LoadHistoryAsync();
     }
 
+    private void NavigateSettings_Click(object sender, RoutedEventArgs e)
+    {
+        ShowPage(SettingsPanel, SettingsNavButton);
+    }
+
     private async void RefreshProfiles_Click(object sender, RoutedEventArgs e)
     {
         await LoadProfilesAsync();
@@ -593,8 +609,9 @@ public partial class MainWindow : Window
         CurrentEnvironmentPanel.Visibility = page == CurrentEnvironmentPanel ? Visibility.Visible : Visibility.Collapsed;
         ProfilesPanel.Visibility = page == ProfilesPanel ? Visibility.Visible : Visibility.Collapsed;
         HistoryPanel.Visibility = page == HistoryPanel ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPanel.Visibility = page == SettingsPanel ? Visibility.Visible : Visibility.Collapsed;
 
-        foreach (var button in new[] { CurrentEnvironmentNavButton, ProfilesNavButton, HistoryNavButton })
+        foreach (var button in new[] { CurrentEnvironmentNavButton, ProfilesNavButton, HistoryNavButton, SettingsNavButton })
         {
             button.Background = System.Windows.Media.Brushes.Transparent;
             button.Foreground = (System.Windows.Media.Brush)FindResource("TextBrush");
@@ -719,7 +736,10 @@ public partial class MainWindow : Window
         PublishCommandState();
         try
         {
-            var renamed = await _profileStore.RenameAsync(card.Profile.Id, card.EditableName);
+            var renamed = await _profileStore.RenameAsync(
+                card.Profile.Id,
+                card.EditableName,
+                _settings.HistoryRetentionPerProfile);
             if (_currentProfileMatch?.Profile.Id == renamed.Id)
             {
                 _currentProfileMatch = new DesktopLayoutProfileMatch
@@ -806,8 +826,15 @@ public partial class MainWindow : Window
         {
             StartWithWindowsCheckBox.IsChecked = _startupService.IsEnabled();
             ShowNotificationsCheckBox.IsChecked = _settings.ShowRestoreNotifications;
+            AutoRestoreCheckBox.IsChecked = _settings.AutoRestoreEnabled;
+            SelectComboBoxItem(DetectionStrategyComboBox, _settings.DetectionStrategy);
+            SelectComboBoxItem(
+                HistoryRetentionComboBox,
+                FindClosestHistoryRetention(_settings.HistoryRetentionPerProfile).ToString());
             _debounceTimer.Interval = TimeSpan.FromMilliseconds(
                 Math.Clamp(_settings.DisplayChangeDelayMilliseconds, 1500, 8000));
+            UpdateDetectionStrategyDescription();
+            UpdateProtectionStatus();
         }
         catch (Exception exception)
         {
@@ -830,7 +857,7 @@ public partial class MainWindow : Window
         try
         {
             _startupService.SetEnabled(enabled);
-            await SaveSettingsAsync(enabled, ShowNotificationsCheckBox.IsChecked == true);
+            await SaveSettingsFromControlsAsync();
             SetStatus(enabled ? "已开启登录 Windows 后自动运行。" : "已关闭登录 Windows 后自动运行。",
                 enabled ? "开机启动已开启" : "开机启动已关闭");
         }
@@ -843,36 +870,282 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ShowNotifications_Changed(object sender, RoutedEventArgs e)
+    private async void SettingsControl_Changed(object sender, RoutedEventArgs e)
     {
         if (_isLoadingSettings)
         {
             return;
         }
 
-        var showNotifications = ShowNotificationsCheckBox.IsChecked == true;
         try
         {
-            await SaveSettingsAsync(StartWithWindowsCheckBox.IsChecked == true, showNotifications);
-            SetStatus(showNotifications ? "已开启恢复成功通知。" : "已关闭恢复成功通知；失败仍会提醒。",
-                showNotifications ? "成功通知已开启" : "静默保护中");
+            await SaveSettingsFromControlsAsync();
+            var enabled = ShowNotificationsCheckBox.IsChecked == true;
+            SetStatus(enabled ? "已开启恢复成功通知。" : "已关闭恢复成功通知；失败仍会提醒。",
+                enabled ? "成功通知已开启" : "静默保护中");
         }
         catch (Exception exception)
         {
-            SetStatus($"保存通知设置失败：{exception.Message}", "通知设置保存失败");
+            SetStatus($"保存设置失败：{exception.Message}", "设置保存失败");
         }
     }
 
-    private async Task SaveSettingsAsync(bool startWithWindows, bool showNotifications)
+    private async void AutoRestore_Changed(object sender, RoutedEventArgs e)
     {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveSettingsFromControlsAsync();
+            UpdateProtectionStatus();
+            if (_settings.AutoRestoreEnabled)
+            {
+                _lastRestoredConfigurationKey = null;
+                ScheduleRefresh("自动恢复已开启");
+            }
+            else
+            {
+                SetStatus("自动恢复已暂停；手动保存、恢复和撤销仍然可用。", "自动恢复已暂停");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"保存自动恢复设置失败：{exception.Message}", "设置保存失败");
+        }
+    }
+
+    private async void DetectionStrategy_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateDetectionStrategyDescription();
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveSettingsFromControlsAsync();
+            _debounceTimer.Interval = TimeSpan.FromMilliseconds(_settings.DisplayChangeDelayMilliseconds);
+            SetStatus("检测策略已更新，将在下一次显示环境变化时生效。", "检测策略已更新");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"保存检测策略失败：{exception.Message}", "设置保存失败");
+        }
+    }
+
+    private async void HistoryRetention_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveSettingsFromControlsAsync();
+            var result = await _profileStore.CleanupAsync(_settings.HistoryRetentionPerProfile);
+            SetStatus(
+                $"历史保留数量已更新；清理 {result.DeletedHistoryCount} 份旧历史和 {result.DeletedPreviewCount} 个无引用预览。",
+                "历史保留设置已更新");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"保存历史设置失败：{exception.Message}", "设置保存失败");
+        }
+    }
+
+    private async Task SaveSettingsFromControlsAsync()
+    {
+        var strategy = GetSelectedTag(DetectionStrategyComboBox, "Standard");
+        var (displayDelay, stabilityDelay) = strategy switch
+        {
+            "Fast" => (1600, 450),
+            "Stable" => (5000, 1400),
+            _ => (3000, 800)
+        };
+        var historyRetention = int.TryParse(
+            GetSelectedTag(HistoryRetentionComboBox, "10"),
+            out var parsedRetention)
+            ? parsedRetention
+            : 10;
+
         _settings = new ApplicationSettings
         {
-            StartWithWindows = startWithWindows,
-            ShowRestoreNotifications = showNotifications,
-            DisplayChangeDelayMilliseconds = _settings.DisplayChangeDelayMilliseconds,
-            StabilityProbeDelayMilliseconds = _settings.StabilityProbeDelayMilliseconds
+            StartWithWindows = StartWithWindowsCheckBox.IsChecked == true,
+            ShowRestoreNotifications = ShowNotificationsCheckBox.IsChecked == true,
+            AutoRestoreEnabled = AutoRestoreCheckBox.IsChecked == true,
+            DetectionStrategy = strategy,
+            HistoryRetentionPerProfile = historyRetention,
+            DisplayChangeDelayMilliseconds = displayDelay,
+            StabilityProbeDelayMilliseconds = stabilityDelay
         };
         await _settingsStore.SaveAsync(_settings);
+    }
+
+    private static string GetSelectedTag(System.Windows.Controls.ComboBox comboBox, string fallback) =>
+        (comboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? fallback;
+
+    private static void SelectComboBoxItem(System.Windows.Controls.ComboBox comboBox, string tag)
+    {
+        comboBox.SelectedItem = comboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+            ?? comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
+    private static int FindClosestHistoryRetention(int value)
+    {
+        var options = new[] { 5, 10, 20, 50 };
+        return options.OrderBy(option => Math.Abs(option - value)).First();
+    }
+
+    private void UpdateDetectionStrategyDescription()
+    {
+        DetectionStrategyDescriptionText.Text = GetSelectedTag(DetectionStrategyComboBox, "Standard") switch
+        {
+            "Fast" => "切换响应最快，适合连接稳定的实体显示器。",
+            "Stable" => "等待显示配置充分稳定，适合 UU 超级屏或较慢的显示切换。",
+            _ => "兼顾响应速度与稳定性，推荐日常使用。"
+        };
+    }
+
+    private void UpdateProtectionStatus()
+    {
+        if (_settings.AutoRestoreEnabled)
+        {
+            ProtectionStatusBorder.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(223, 245, 235));
+            ProtectionStatusIcon.Foreground = (System.Windows.Media.Brush)FindResource("SuccessBrush");
+            ProtectionStatusTitle.Foreground = (System.Windows.Media.Brush)FindResource("SuccessBrush");
+            ProtectionStatusSubtitle.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(71, 115, 99));
+            ProtectionStatusIcon.Text = "\uE73E";
+            ProtectionStatusTitle.Text = "后台保护已开启";
+            ProtectionStatusSubtitle.Text = "仅恢复已保存的方案";
+        }
+        else
+        {
+            var pausedBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(102, 112, 133));
+            ProtectionStatusBorder.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(236, 239, 244));
+            ProtectionStatusIcon.Foreground = pausedBrush;
+            ProtectionStatusTitle.Foreground = pausedBrush;
+            ProtectionStatusSubtitle.Foreground = pausedBrush;
+            ProtectionStatusIcon.Text = "\uE769";
+            ProtectionStatusTitle.Text = "自动恢复已暂停";
+            ProtectionStatusSubtitle.Text = "手动操作仍然可用";
+        }
+    }
+
+    private async void RefreshFromSettings_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshAsync("设置页面手动检测");
+    }
+
+    private async void CleanupData_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var result = await _profileStore.CleanupAsync(_settings.HistoryRetentionPerProfile);
+            await LoadHistoryAsync();
+            SetStatus(
+                $"清理完成：移除 {result.DeletedHistoryCount} 份超出保留数量的历史和 {result.DeletedPreviewCount} 个无引用预览。",
+                "旧数据清理完成");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"清理旧数据失败：{exception.Message}", "数据清理失败");
+        }
+    }
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(_profileStore.DataRoot);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _profileStore.DataRoot,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"无法打开数据文件夹：{exception.Message}", "无法打开数据文件夹");
+        }
+    }
+
+    private async void ResetAllProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        var confirmation = System.Windows.MessageBox.Show(
+            this,
+            "确定清空全部当前显示方案吗？\n\n方案会移入 deleted 备份目录；桌面图标和历史记录不会被移动。",
+            "安全清空全部方案",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (!await _desktopOperationLock.WaitAsync(0))
+        {
+            SetStatus("另一个桌面操作正在执行，请稍后再试。", "桌面操作进行中");
+            return;
+        }
+
+        _isDesktopOperationRunning = true;
+        PublishCommandState();
+        try
+        {
+            var deletedCount = _profileStore.DeleteAll();
+            _currentProfileMatch = null;
+            _lastRestoredConfigurationKey = null;
+            LayoutStatusText.Text = "当前显示环境没有方案；整理好图标后可重新保存。";
+            await LoadProfilesAsync();
+            SetStatus($"已安全清空 {deletedCount} 个显示方案，原文件已移入 deleted 备份目录。", "显示方案已清空");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"清空显示方案失败：{exception.Message}", "清空方案失败");
+        }
+        finally
+        {
+            _isDesktopOperationRunning = false;
+            _desktopOperationLock.Release();
+            PublishCommandState();
+        }
+    }
+
+    private async void ClearLogs_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var deletedCount = await _logService.ClearAsync();
+            SetStatus($"已清理 {deletedCount} 个诊断日志文件。", "诊断日志已清理");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"清理诊断日志失败：{exception.Message}", "日志清理失败");
+        }
+    }
+
+    private void OpenProjectPage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://github.com/Jellyfish-Puff/DesktopLayoutGuardian",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"无法打开 GitHub 项目：{exception.Message}", "无法打开项目页面");
+        }
     }
 
     private void CopyReport_Click(object sender, RoutedEventArgs e)

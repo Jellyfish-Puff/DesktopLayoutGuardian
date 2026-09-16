@@ -47,6 +47,32 @@ public sealed class DiagnosticLogService
         }
     }
 
+    public async Task<int> ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await _appendLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!Directory.Exists(LogDirectory))
+            {
+                return 0;
+            }
+
+            var deletedCount = 0;
+            foreach (var path in Directory.EnumerateFiles(LogDirectory, "display-events*.jsonl", SearchOption.TopDirectoryOnly))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Delete(path);
+                deletedCount++;
+            }
+
+            return deletedCount;
+        }
+        finally
+        {
+            _appendLock.Release();
+        }
+    }
+
     private void RotateIfNeeded()
     {
         var logFile = new FileInfo(LogFilePath);

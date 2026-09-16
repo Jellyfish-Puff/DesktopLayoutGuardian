@@ -31,7 +31,7 @@
           </Border>
           <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
             <TextBlock Text="桌面布局" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-            <TextBlock Text="显示环境保护 · v0.4" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+            <TextBlock Text="显示环境保护 · v0.5" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
           </StackPanel>
         </StackPanel>
 
@@ -54,14 +54,20 @@
               <TextBlock Text="恢复记录" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
+          <Button x:Name="SettingsNavButton" Style="{StaticResource NavButtonStyle}" Click="NavigateSettings_Click">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons" FontSize="17" Width="29" />
+              <TextBlock Text="设置" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
         </StackPanel>
 
-        <Border Grid.Row="3" Padding="11" CornerRadius="10" Background="#DFF5EB">
+        <Border x:Name="ProtectionStatusBorder" Grid.Row="3" Padding="11" CornerRadius="10" Background="#DFF5EB">
           <StackPanel Orientation="Horizontal">
-            <TextBlock Text="&#xE73E;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center" />
+            <TextBlock x:Name="ProtectionStatusIcon" Text="&#xE73E;" FontFamily="Segoe Fluent Icons" FontSize="17" Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center" />
             <StackPanel Margin="9,0,0,0">
-              <TextBlock Text="后台保护已开启" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" />
-              <TextBlock Text="仅恢复已保存的方案" FontSize="11" Foreground="#477363" />
+              <TextBlock x:Name="ProtectionStatusTitle" Text="后台保护已开启" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" />
+              <TextBlock x:Name="ProtectionStatusSubtitle" Text="仅恢复已保存的方案" FontSize="11" Foreground="#477363" />
             </StackPanel>
           </StackPanel>
         </Border>
@@ -158,23 +164,11 @@
             <TextBlock Grid.Row="1" x:Name="StatusText" Text="正在等待第一次检测…" Margin="0,15,0,12" TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
             <StackPanel Grid.Row="2">
               <Button Content="复制完整诊断信息" HorizontalAlignment="Stretch" Click="CopyReport_Click" />
-              <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14,0,12" />
-              <CheckBox x:Name="StartWithWindowsCheckBox"
-                        Content="登录 Windows 后自动运行"
-                        Foreground="{StaticResource TextBrush}"
-                        Margin="2,0,0,9"
-                        Checked="StartWithWindows_Changed"
-                        Unchecked="StartWithWindows_Changed" />
-              <CheckBox x:Name="ShowNotificationsCheckBox"
-                        Content="恢复成功时显示通知"
-                        Foreground="{StaticResource TextBrush}"
-                        Margin="2,0,0,0"
-                        Checked="ShowNotifications_Changed"
-                        Unchecked="ShowNotifications_Changed" />
-              <TextBlock Text="失败始终提醒；成功通知默认关闭"
+              <TextBlock Text="启动、通知和自动恢复选项已集中到设置页面"
+                         TextWrapping="Wrap"
                          FontSize="10.5"
                          Foreground="{StaticResource SecondaryTextBrush}"
-                         Margin="22,6,0,0" />
+                         Margin="2,10,0,0" />
             </StackPanel>
           </Grid>
         </Border>
@@ -364,6 +358,130 @@
           </ItemsControl>
         </ScrollViewer>
       </Grid>
+    </Grid>
+
+    <Grid x:Name="SettingsPanel" Grid.Column="1" Margin="30,25,32,28" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <StackPanel>
+        <TextBlock Text="设置" FontSize="27" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+        <TextBlock Text="控制后台行为、显示切换检测和本地数据；安全快照始终开启" Margin="0,5,0,0" Foreground="{StaticResource SecondaryTextBrush}" />
+      </StackPanel>
+
+      <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="16" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
+          <Border Style="{StaticResource SectionCardStyle}">
+            <StackPanel>
+              <TextBlock Text="常规" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="程序关闭主窗口后会继续在系统托盘运行" Margin="0,4,0,18" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
+              <CheckBox x:Name="StartWithWindowsCheckBox"
+                        Content="登录 Windows 后自动运行"
+                        Foreground="{StaticResource TextBrush}"
+                        Margin="2,0,0,13"
+                        Checked="StartWithWindows_Changed"
+                        Unchecked="StartWithWindows_Changed" />
+              <CheckBox x:Name="ShowNotificationsCheckBox"
+                        Content="恢复成功时显示通知"
+                        Foreground="{StaticResource TextBrush}"
+                        Margin="2,0,0,0"
+                        Checked="SettingsControl_Changed"
+                        Unchecked="SettingsControl_Changed" />
+              <TextBlock Text="失败通知始终显示；安全快照始终开启"
+                         FontSize="10.5"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Margin="22,7,0,0" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Column="2" Style="{StaticResource SectionCardStyle}">
+            <StackPanel>
+              <TextBlock Text="自动恢复" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="关闭后仍会识别显示环境，但不会自动移动图标" Margin="0,4,0,16" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
+              <CheckBox x:Name="AutoRestoreCheckBox"
+                        Content="显示环境变化后自动恢复"
+                        Foreground="{StaticResource TextBrush}"
+                        Margin="2,0,0,15"
+                        Checked="AutoRestore_Changed"
+                        Unchecked="AutoRestore_Changed" />
+              <TextBlock Text="检测策略" Margin="0,0,0,6" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <ComboBox x:Name="DetectionStrategyComboBox"
+                        Padding="9,7"
+                        SelectionChanged="DetectionStrategy_Changed">
+                <ComboBoxItem Tag="Fast">快速（约 2 秒）</ComboBoxItem>
+                <ComboBoxItem Tag="Standard">标准（约 4 秒，推荐）</ComboBoxItem>
+                <ComboBoxItem Tag="Stable">稳健（约 6–7 秒）</ComboBoxItem>
+              </ComboBox>
+              <TextBlock x:Name="DetectionStrategyDescriptionText"
+                         Text="适合实体屏与 UU 超级屏的日常使用"
+                         Margin="0,7,0,13"
+                         FontSize="10.5"
+                         TextWrapping="Wrap"
+                         Foreground="{StaticResource SecondaryTextBrush}" />
+              <Button Content="立即重新检测" HorizontalAlignment="Left" Click="RefreshFromSettings_Click" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}">
+            <StackPanel>
+              <TextBlock Text="历史与安全" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="每个方案保留的旧版本数量" Margin="0,14,0,6" Foreground="{StaticResource TextBrush}" />
+              <ComboBox x:Name="HistoryRetentionComboBox"
+                        Padding="9,7"
+                        SelectionChanged="HistoryRetention_Changed">
+                <ComboBoxItem Tag="5">5 份</ComboBoxItem>
+                <ComboBoxItem Tag="10">10 份（推荐）</ComboBoxItem>
+                <ComboBoxItem Tag="20">20 份</ComboBoxItem>
+                <ComboBoxItem Tag="50">50 份</ComboBoxItem>
+              </ComboBox>
+              <WrapPanel Margin="0,16,0,0">
+                <Button Content="清理旧数据" Margin="0,0,8,8" Click="CleanupData_Click" />
+                <Button Content="打开数据文件夹" Margin="0,0,8,8" Click="OpenDataFolder_Click" />
+              </WrapPanel>
+              <Button Content="安全清空全部方案"
+                      HorizontalAlignment="Left"
+                      Margin="0,4,0,0"
+                      Foreground="#B42318"
+                      Click="ResetAllProfiles_Click" />
+              <TextBlock Text="清空时方案会移入 deleted 备份目录，不会立即永久删除"
+                         Margin="0,8,0,0"
+                         FontSize="10.5"
+                         TextWrapping="Wrap"
+                         Foreground="{StaticResource SecondaryTextBrush}" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource SectionCardStyle}">
+            <StackPanel>
+              <TextBlock Text="诊断与关于" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="出现显示切换问题时，可复制诊断信息用于排查" Margin="0,4,0,16" FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
+              <WrapPanel>
+                <Button Content="复制诊断信息" Margin="0,0,8,8" Click="CopyReport_Click" />
+                <Button Content="打开日志文件夹" Margin="0,0,8,8" Click="OpenLogFolder_Click" />
+                <Button Content="清理旧日志" Margin="0,0,8,8" Click="ClearLogs_Click" />
+              </WrapPanel>
+              <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,12,0,14" />
+              <TextBlock Text="DesktopLayoutGuardian v0.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+              <TextBlock Text="Windows 11 单显示器桌面布局保护工具" Margin="0,4,0,12" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+              <Button Content="打开 GitHub 项目" HorizontalAlignment="Left" Click="OpenProjectPage_Click" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </ScrollViewer>
     </Grid>
   </Grid>
 </Window>

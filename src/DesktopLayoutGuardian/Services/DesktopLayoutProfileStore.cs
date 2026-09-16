@@ -39,6 +39,7 @@ public sealed class DesktopLayoutProfileStore
         DisplaySnapshot display,
         DesktopLayoutSnapshot layout,
         string? previewImageFileName = null,
+        int historyRetentionPerProfile = 10,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(display);
@@ -55,6 +56,7 @@ public sealed class DesktopLayoutProfileStore
         if (existing is not null)
         {
             await BackupAsync(existing, targetPath, cancellationToken);
+            PruneHistoryDirectory(existing.Id, historyRetentionPerProfile);
         }
 
         var now = DateTimeOffset.Now;
@@ -185,6 +187,7 @@ public sealed class DesktopLayoutProfileStore
     public async Task<DesktopLayoutProfile> RenameAsync(
         string profileId,
         string newName,
+        int historyRetentionPerProfile = 10,
         CancellationToken cancellationToken = default)
     {
         var normalizedName = newName.Trim();
@@ -198,6 +201,7 @@ public sealed class DesktopLayoutProfileStore
             ?? throw new FileNotFoundException("找不到要重命名的显示方案。", targetPath);
 
         await BackupAsync(existing, targetPath, cancellationToken);
+        PruneHistoryDirectory(existing.Id, historyRetentionPerProfile);
         var renamed = new DesktopLayoutProfile
         {
             Id = existing.Id,
@@ -226,6 +230,80 @@ public sealed class DesktopLayoutProfileStore
         File.Move(sourcePath, destinationPath, overwrite: false);
     }
 
+    public int DeleteAll()
+    {
+        if (!Directory.Exists(ProfileDirectory))
+        {
+            return 0;
+        }
+
+        Directory.CreateDirectory(DeletedDirectory);
+        var deletedCount = 0;
+        foreach (var sourcePath in Directory.EnumerateFiles(ProfileDirectory, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff");
+            var destinationPath = Path.Combine(
+                DeletedDirectory,
+                $"{timestamp}-{Guid.NewGuid():N}-{Path.GetFileName(sourcePath)}");
+            File.Move(sourcePath, destinationPath, overwrite: false);
+            deletedCount++;
+        }
+
+        return deletedCount;
+    }
+
+    public async Task<DesktopLayoutCleanupResult> CleanupAsync(
+        int historyRetentionPerProfile,
+        CancellationToken cancellationToken = default)
+    {
+        var deletedHistoryCount = 0;
+        if (Directory.Exists(HistoryDirectory))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(HistoryDirectory, "*", SearchOption.TopDirectoryOnly))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                deletedHistoryCount += PruneHistoryDirectory(Path.GetFileName(directory), historyRetentionPerProfile);
+            }
+        }
+
+        var referencedPreviews = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in new[] { ProfileDirectory, HistoryDirectory, DeletedDirectory })
+        {
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (var profilePath in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var profile = await TryReadAsync(profilePath, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(profile?.PreviewImageFileName))
+                {
+                    referencedPreviews.Add(Path.GetFileName(profile.PreviewImageFileName));
+                }
+            }
+        }
+
+        var deletedPreviewCount = 0;
+        if (Directory.Exists(PreviewDirectory))
+        {
+            foreach (var previewPath in Directory.EnumerateFiles(PreviewDirectory, "*", SearchOption.TopDirectoryOnly))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (referencedPreviews.Contains(Path.GetFileName(previewPath)))
+                {
+                    continue;
+                }
+
+                File.Delete(previewPath);
+                deletedPreviewCount++;
+            }
+        }
+
+        return new DesktopLayoutCleanupResult(deletedHistoryCount, deletedPreviewCount);
+    }
+
     private async Task BackupAsync(
         DesktopLayoutProfile existing,
         string sourcePath,
@@ -238,6 +316,28 @@ public sealed class DesktopLayoutProfileStore
         await using var source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         await using var destination = new FileStream(backupPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         await source.CopyToAsync(destination, cancellationToken);
+    }
+
+    private int PruneHistoryDirectory(string profileId, int historyRetentionPerProfile)
+    {
+        var profileHistoryDirectory = Path.Combine(HistoryDirectory, SanitizeFileName(profileId));
+        if (!Directory.Exists(profileHistoryDirectory))
+        {
+            return 0;
+        }
+
+        var keepCount = Math.Clamp(historyRetentionPerProfile, 1, 100);
+        var oldFiles = Directory
+            .EnumerateFiles(profileHistoryDirectory, "*.json", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .Skip(keepCount)
+            .ToArray();
+        foreach (var oldFile in oldFiles)
+        {
+            File.Delete(oldFile);
+        }
+
+        return oldFiles.Length;
     }
 
     private static async Task WriteAtomicallyAsync(
@@ -296,3 +396,5 @@ public sealed class DesktopLayoutProfileStore
         return monitor.FriendlyName;
     }
 }
+
+public sealed record DesktopLayoutCleanupResult(int DeletedHistoryCount, int DeletedPreviewCount);

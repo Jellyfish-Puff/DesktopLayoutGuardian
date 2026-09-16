@@ -12,6 +12,7 @@ public partial class App : System.Windows.Application
 
     private readonly CancellationTokenSource _activationCancellation = new();
     private Forms.NotifyIcon? _notifyIcon;
+    private System.Drawing.Icon? _trayIcon;
     private Forms.ToolStripMenuItem? _statusMenuItem;
     private Forms.ToolStripMenuItem? _saveMenuItem;
     private Forms.ToolStripMenuItem? _restoreMenuItem;
@@ -76,14 +77,29 @@ public partial class App : System.Windows.Application
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("退出", null, (_, _) => ExitApplication());
 
+        _trayIcon = LoadApplicationIcon();
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = _trayIcon ?? System.Drawing.SystemIcons.Application,
             Text = "桌面布局 · 正在启动",
             Visible = true,
             ContextMenuStrip = menu
         };
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
+    }
+
+    private static System.Drawing.Icon? LoadApplicationIcon()
+    {
+        try
+        {
+            return Environment.ProcessPath is { Length: > 0 } executablePath
+                ? System.Drawing.Icon.ExtractAssociatedIcon(executablePath)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task RunTrayCommandAsync(Func<MainWindow, Task> command)
@@ -204,6 +220,9 @@ public partial class App : System.Windows.Application
             _notifyIcon.Dispose();
             _notifyIcon = null;
         }
+
+        _trayIcon?.Dispose();
+        _trayIcon = null;
 
         _mainWindow?.Close();
         Shutdown();
